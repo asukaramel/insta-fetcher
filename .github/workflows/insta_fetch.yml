@@ -1,0 +1,35 @@
+name: Instagram Fetcher
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # 6時間おきに実行
+  workflow_dispatch:  # 手動トリガーも可能
+
+jobs:
+  fetch_and_upload:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests gspread oauth2client schedule pytz
+
+    - name: Run Instagram fetch script
+      env:
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+        INSTAGRAM_BUSINESS_ID: '17841413261363491'
+        HASHTAG: '徳川園'
+        SPREADSHEET_NAME: 'InstaContestLog'
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/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'
+      run: |
+        echo "$GOOGLE_CREDENTIALS" > client_secret.json
+        python insta_fetcher.py
