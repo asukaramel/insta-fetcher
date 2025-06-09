@@ -12,6 +12,10 @@ import time
 from datetime import datetime as dt
 import pytz
 
+ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
+if not ACCESS_TOKEN:
+    raise Exception("環境変数 'ACCESS_TOKEN' が設定されていません")
+
 # ====== 設定項目 ======
 HASHTAG = '徳川園'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
