@@ -12,19 +12,21 @@ import time
 from datetime import datetime as dt
 import pytz
 
-ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
-if not ACCESS_TOKEN:
-    raise Exception("環境変数 'ACCESS_TOKEN' が設定されていません")
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
 
 # ====== 設定項目 ======
 HASHTAG = '徳川園'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
-ACCESS_TOKEN = 'EAAH9Mdud0HQBOZCXyCReEgIcpZAHTijRi4GGWyWZAKNBofp7kxjm3L6b4ZCWbFEbTXEHkd7RvnWYzIROHOzhyk5nOXyorNcmm6vjNHJapx1XibLNkW2uJJ9ZCgrysb0JkGM76V5V1UzOWKcmOW5UXU9UdroO8Sz9EgDKZCLELUjpIwjHXGvqvwzBZCwBLPNatT4XrZBti4Ai'
+ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 SAVE_DIR = 'images'  # ローカルの保存パス
 CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLog'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'  # 認証ファイルのパス
 SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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'  # ← あなたのSlack Webhook URLにする
+DRIVE_FOLDER_ID ='1YGx-G-5eMxrEinVBleYvMvYqsS5DIYaL'
 # =======================
 
 # ✅ ログ設定
@@ -53,7 +55,7 @@ def notify_slack(message):
 # Google Sheets 認証
 def get_gspread_client():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_name('client_secret.json', scope)
+    creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDENTIALS_PATH, scope)
     return gspread.authorize(creds)
 
 # Instagram APIリクエスト
@@ -98,6 +100,29 @@ def fetch_posts():
 # 画像を保存
 def download_image(url, path):
     urllib.request.urlretrieve(url, path)
+
+# Google Drive に画像アップロード
+
+
+def upload_to_drive(file_path, file_name, drive_folder_id):
+    try:
+        # Drive API 用の認証
+        scopes = ['https://www.googleapis.com/auth/drive']
+        creds = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=scopes)
+        service = build('drive', 'v3', credentials=creds)
+
+        file_metadata = {
+            'name': file_name,
+            'parents': [drive_folder_id]  # アップロード先フォルダID
+        }
+        media = MediaFileUpload(file_path, mimetype='image/jpeg')
+        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+
+        log(f"→ Google Drive にアップロード成功: {file_name} (File ID: {uploaded_file.get('id')})")
+
+    except Exception as e:
+        log(f"Google Drive アップロードエラー: {e}")
+
 
 # CSV に記録済み ID をロード
 def load_existing_ids():
@@ -191,6 +216,8 @@ def job():
 
         save_to_csv(post, file_name, timestamp_str)
         save_to_gsheet(post, file_name, timestamp_str, sheet)
+
+        upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
 
         log(f"[NEW] {post['id']} → {file_name}")
         new_count += 1
