@@ -20,8 +20,8 @@ if not ACCESS_TOKEN:
 HASHTAG = '徳川園'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = 'EAAH9Mdud0HQBOZCXyCReEgIcpZAHTijRi4GGWyWZAKNBofp7kxjm3L6b4ZCWbFEbTXEHkd7RvnWYzIROHOzhyk5nOXyorNcmm6vjNHJapx1XibLNkW2uJJ9ZCgrysb0JkGM76V5V1UzOWKcmOW5UXU9UdroO8Sz9EgDKZCLELUjpIwjHXGvqvwzBZCwBLPNatT4XrZBti4Ai'
-SAVE_DIR = '/Users/asuka_2752/Documents/INSTA/Images'  # ローカルの保存パス
-CSV_PATH = '/Users/asuka_2752/Documents/INSTA/log.csv'
+SAVE_DIR = 'images'  # ローカルの保存パス
+CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLog'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'  # 認証ファイルのパス
 SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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'  # ← あなたのSlack Webhook URLにする
