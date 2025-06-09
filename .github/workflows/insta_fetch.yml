@@ -20,7 +20,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests gspread oauth2client schedule pytz
+        pip install -r requirements.txt
 
     - name: Run Instagram fetch script
       env:
