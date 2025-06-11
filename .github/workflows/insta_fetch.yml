@@ -1,8 +1,8 @@
 name: Instagram Fetcher
 
 on:
-  #schedule:
-    #- cron: '0 */6 * * *'  # 6時間おきに実行
+  schedule:
+    - cron: '0 */6 * * *'  # 6時間おきに実行
   workflow_dispatch:  # 手動トリガーも可能
 
 jobs:
