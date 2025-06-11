@@ -29,7 +29,7 @@ jobs:
         HASHTAG: '徳川園'
         SPREADSHEET_NAME: 'InstaContestLog'
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
-        SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/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'
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
         echo "$GOOGLE_CREDENTIALS" > client_secret.json
         python insta_fetcher.py
