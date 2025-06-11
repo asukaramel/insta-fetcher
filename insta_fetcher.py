@@ -25,7 +25,7 @@ SAVE_DIR = 'images'  # ローカルの保存パス
 CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLog'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'  # 認証ファイルのパス
-SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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'  # ← あなたのSlack Webhook URLにする
+SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')  # ← あなたのSlack Webhook URLにする
 DRIVE_FOLDER_ID ='1YGx-G-5eMxrEinVBleYvMvYqsS5DIYaL'
 # =======================
 
@@ -137,8 +137,9 @@ def save_to_csv(post, file_name, timestamp_str):
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if is_new:
-            writer.writerow(['timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
+            writer.writerow(['fetch_time','timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
         writer.writerow([
+            fetch_time,
             timestamp_str,
             post['id'],
             file_name,
@@ -150,13 +151,13 @@ def save_to_csv(post, file_name, timestamp_str):
         ])
 
 # Google スプレッドシートに保存
-def save_to_gsheet(post, file_name, timestamp_str, sheet):
-    # ヘッダー行がなければ追加
+def save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time):
+    # ヘッダー行がなければ追加（fetch_timeを先頭に）
     if sheet.row_count == 0 or sheet.cell(1, 1).value is None:
-        sheet.append_row(['timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
+        sheet.append_row(['fetch_time', 'timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
 
-    # ※ existing_ids_gsheet のチェックは job() 側でやっているのでここは不要！
     sheet.append_row([
+        fetch_time,
         timestamp_str,
         post['id'],
         file_name,
@@ -193,6 +194,8 @@ def job():
     file_counter = get_next_file_number()
     jst = pytz.timezone('Asia/Tokyo')
 
+    fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
+
     new_count = 0
 
     for post in posts:
@@ -214,8 +217,8 @@ def job():
         image_path = os.path.join(SAVE_DIR, file_name)
         download_image(post['media_url'], image_path)
 
-        save_to_csv(post, file_name, timestamp_str)
-        save_to_gsheet(post, file_name, timestamp_str, sheet)
+        save_to_csv(post, file_name, timestamp_str, fetch_time)
+        save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
 
         upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
 
@@ -226,10 +229,6 @@ def job():
 
     # ✅ Slack通知
     notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
-
-
- 
-
 
 # スケジューラー実行
 schedule.every(6).hours.do(job)
