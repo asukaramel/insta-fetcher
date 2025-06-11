@@ -132,7 +132,7 @@ def load_existing_ids():
         return set(row[1] for row in csv.reader(f))[1:]
 
 # CSV に保存
-def save_to_csv(post, file_name, timestamp_str):
+def save_to_csv(post, file_name, timestamp_str,fetch_time):
     is_new = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
