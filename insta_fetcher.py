@@ -25,7 +25,7 @@ SAVE_DIR = 'images'  # ローカルの保存パス
 CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLog'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'  # 認証ファイルのパス
-SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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'  # ← あなたのSlack Webhook URLにする
+SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/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'  # ← あなたのSlack Webhook URLにする
 DRIVE_FOLDER_ID ='1YGx-G-5eMxrEinVBleYvMvYqsS5DIYaL'
 # =======================
 
