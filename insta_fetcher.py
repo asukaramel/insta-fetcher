@@ -150,50 +150,53 @@ def get_next_file_number_from_sheet(sheet):
             numbers.append(int(match.group(1)))
     return max(numbers) + 1 if numbers else 1
 
+# メイン処理
 def job():
-    log("===== ジョブ開始 =====")
-    os.makedirs(SAVE_DIR, exist_ok=True)
-    existing_ids = load_existing_ids()
-    posts = fetch_posts()
-    gc = get_gspread_client()
-    sheet = gc.open(SPREADSHEET_NAME).sheet1
+    try:
+        log("===== ジョブ開始 =====")
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        existing_ids = load_existing_ids()
+        posts = fetch_posts()
+        gc = get_gspread_client()
+        sheet = gc.open(SPREADSHEET_NAME).sheet1
+        existing_ids_gsheet = sheet.col_values(2)
+        file_counter = get_next_file_number()
+        jst = pytz.timezone('Asia/Tokyo')
+        new_count = 0
 
-    existing_ids_gsheet = sheet.col_values(2)
-    file_counter = get_next_file_number_from_sheet(sheet)
-    jst = pytz.timezone('Asia/Tokyo')
+        for post in posts:
+            if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
+                continue
 
-    new_count = 0
+            timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
+            timestamp_jst = timestamp_utc.astimezone(jst)
+            timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
+            file_name = f'tokugawa_{file_counter}.jpeg'
+            file_counter += 1
+            image_path = os.path.join(SAVE_DIR, file_name)
+            download_image(post['media_url'], image_path)
+            save_to_csv(post, file_name, timestamp_str)
+            save_to_gsheet(post, file_name, timestamp_str, sheet)
+            log(f"[NEW] {post['id']} → {file_name}")
+            new_count += 1
 
-    for post in posts:
-        if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
-            continue
+        msg = f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ({dt.now().strftime('%Y-%m-%d %H:%M:%S')})"
+        log(msg)
+        notify_slack(msg)
+        log("===== ジョブ終了 =====")
 
-        timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
-        timestamp_jst = timestamp_utc.astimezone(jst)
-        timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        error_message = f"❌ Instagram Fetcher エラー発生！\n{str(e)}\n{traceback.format_exc()}"
+        log(error_message)
+        notify_slack(error_message)
 
-        file_name = f'tokugawa_{file_counter}.jpeg'
-        file_counter += 1
-
-        image_path = os.path.join(SAVE_DIR, file_name)
-        download_image(post['media_url'], image_path)
-
-        save_to_csv(post, file_name, timestamp_str)
-        save_to_gsheet(post, file_name, timestamp_str, sheet)
-
-        log(f"[NEW] {post['id']} → {file_name}")
-        new_count += 1
-
-    log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
-    notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
-
-# スケジューラー設定
+# スケジュール実行
 schedule.every(6).hours.do(job)
 
 if __name__ == "__main__":
     log("Instagram Fetcher started. Press Ctrl+C to stop.")
     notify_slack("🚀 Instagram Fetcher 起動しました！")
-    job()
+    job()  # 最初に一度実行
     while True:
         schedule.run_pending()
         time.sleep(60)
