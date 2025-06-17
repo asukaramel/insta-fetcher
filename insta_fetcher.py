@@ -189,53 +189,57 @@ def get_next_file_number(sheet):
 # メイン処理
 def job():
     log("===== ジョブ開始 =====")
-    os.makedirs(SAVE_DIR, exist_ok=True)
+    retries = 3
+    delay_sec = 10
+    for attempt in range(1, retries+1):
+        try:
+            os.makedirs(SAVE_DIR, exist_ok=True)
+            existing_ids = load_existing_ids()
+            posts = fetch_posts()
 
-    try:
-        posts = fetch_posts()
-        gc = get_gspread_client()
-        sheet = gc.open(SPREADSHEET_NAME).sheet1
+            gc = get_gspread_client()
+            sheet = gc.open(SPREADSHEET_NAME).sheet1
+            existing_ids_gsheet = sheet.col_values(2)
 
-        # Google Sheets側の既存IDを取得
-        existing_ids_gsheet = sheet.col_values(3)[1:]  # 3列目が投稿ID
+            file_counter = get_next_file_number(sheet)
+            jst = pytz.timezone('Asia/Tokyo')
+            fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
 
-        # スプレッドシートから次の連番取得
-        file_counter = get_next_file_number(sheet)
+            new_count = 0
+            for post in posts:
+                if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
+                    continue
 
-        jst = pytz.timezone('Asia/Tokyo')
-        fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
+                timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
+                timestamp_jst = timestamp_utc.astimezone(jst)
+                timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
 
-        new_count = 0
+                file_name = f'tokugawa_{file_counter}.jpeg'
+                file_counter += 1
 
-        for post in posts:
-            if post['id'] in existing_ids_gsheet:
-                continue
+                image_path = os.path.join(SAVE_DIR, file_name)
+                download_image(post['media_url'], image_path)
 
-            timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
-            timestamp_jst = timestamp_utc.astimezone(jst)
-            timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
+                save_to_csv(post, file_name, timestamp_str, fetch_time)
+                save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
+                upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
 
-            file_name = f'tokugawa_{file_counter}.jpeg'
-            file_counter += 1
+                log(f"[NEW] {post['id']} → {file_name}")
+                new_count += 1
 
-            image_path = os.path.join(SAVE_DIR, file_name)
-            download_image(post['media_url'], image_path)
+            log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
+            notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
+            break  # 成功したらループ抜ける
 
-            save_to_csv(post, file_name, timestamp_str, fetch_time)
-            save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
-            upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
-
-            log(f"[NEW] {post['id']} → {file_name}")
-            new_count += 1
-
-        log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
-        notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
-
-    except Exception as e:
-        import traceback
-        error_message = f"❌ Instagram Fetcher エラー発生！\n```\n{str(e)}\n{traceback.format_exc()}\n```"
-        log(error_message)
-        notify_slack(error_message)
+        except Exception as e:
+            log(f"Attempt {attempt} failed: {e}")
+            if attempt == retries:
+                notify_slack(f"❌ Instagram Fetcher エラー発生（最終試行失敗）: {e}")
+                log("最大試行回数に達しました。処理を終了します。")
+                raise
+            else:
+                notify_slack(f"⚠️ Instagram Fetcher エラー発生（試行 {attempt}）: {e}。{delay_sec}秒後に再試行します。")
+                time.sleep(delay_sec)
 
 
 # スケジューラー実行
