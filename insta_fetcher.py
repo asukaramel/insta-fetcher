@@ -138,7 +138,7 @@ existing_ids = load_existing_ids()
 
 gc = get_gspread_client()
 sheet = gc.open(SPREADSHEET_NAME).sheet1
-existing_ids_gsheet = set(sheet.col_values(2)[1:])  # ヘッダー除外してセット化
+existing_ids_gsheet = set(sheet.col_values(3)[1:])  # ヘッダー除外してセット化
 
 for post in posts:
     if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
