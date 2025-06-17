@@ -125,12 +125,26 @@ def upload_to_drive(file_path, file_name, drive_folder_id):
         log(f"Google Drive アップロードエラー: {e}")
 
 
-# CSV に記録済み ID をロード
 def load_existing_ids():
     if not os.path.exists(CSV_PATH):
         return set()
     with open(CSV_PATH, newline='', encoding='utf-8') as f:
-        return set(row[1] for row in csv.reader(f))[1:]
+        reader = csv.reader(f)
+        next(reader)  # ヘッダー読み飛ばし
+        return set(row[1] for row in reader)
+
+# job()内の変更例
+existing_ids = load_existing_ids()
+
+gc = get_gspread_client()
+sheet = gc.open(SPREADSHEET_NAME).sheet1
+existing_ids_gsheet = set(sheet.col_values(2)[1:])  # ヘッダー除外してセット化
+
+for post in posts:
+    if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
+        continue
+    # 新規処理
+
 
 # CSV に保存
 def save_to_csv(post, file_name, timestamp_str,fetch_time):
