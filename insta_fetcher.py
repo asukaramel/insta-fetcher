@@ -236,3 +236,15 @@ def job():
         error_message = f"❌ Instagram Fetcher エラー発生！\n```\n{str(e)}\n{traceback.format_exc()}\n```"
         log(error_message)
         notify_slack(error_message)
+
+
+# スケジューラー実行
+schedule.every(6).hours.do(job)
+
+if __name__ == "__main__":
+    log("Instagram Fetcher started. Press Ctrl+C to stop.")
+    notify_slack("🚀 Instagram Fetcher 起動しました！")
+    job()  # 最初に一度実行
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
