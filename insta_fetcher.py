@@ -133,17 +133,6 @@ def load_existing_ids():
         next(reader)  # ヘッダー読み飛ばし
         return set(row[1] for row in reader)
 
-# job()内の変更例
-existing_ids = load_existing_ids()
-
-gc = get_gspread_client()
-sheet = gc.open(SPREADSHEET_NAME).sheet1
-existing_ids_gsheet = set(sheet.col_values(3)[1:])  # ヘッダー除外してセット化
-
-for post in posts:
-    if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
-        continue
-    # 新規処理
 
 
 # CSV に保存
