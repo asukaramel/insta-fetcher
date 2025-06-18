@@ -202,7 +202,7 @@ def job():
 
             gc = get_gspread_client()
             sheet = gc.open(SPREADSHEET_NAME).sheet1
-            existing_ids_gsheet = sheet.col_values(2)
+            existing_ids_gsheet = sheet.col_values(3)[1:]
 
             file_counter = get_next_file_number(sheet)
             jst = pytz.timezone('Asia/Tokyo')
