@@ -19,7 +19,7 @@ from googleapiclient.http import MediaFileUpload
 
 
 # ====== 設定項目 ======
-HASHTAG = '徳川園'
+HASHTAG = '愛知サムライガーデン'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 SAVE_DIR = 'images'  # ローカルの保存パス
@@ -180,7 +180,7 @@ def get_next_file_number(sheet):
         filenames = sheet.col_values(4)[1:]  # 1行目はヘッダーなのでスキップ
         numbers = []
         for name in filenames:
-            match = re.match(r'tokugawa_(\d+)\.jpeg', name)
+            match = re.match(r'garden_(\d+)\.jpeg', name)
             if match:
                 numbers.append(int(match.group(1)))
         return max(numbers) + 1 if numbers else 1
@@ -217,7 +217,7 @@ def job():
                 timestamp_jst = timestamp_utc.astimezone(jst)
                 timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
 
-                file_name = f'tokugawa_{file_counter}.jpeg'
+                file_name = f'garden_{file_counter}.jpeg'
                 file_counter += 1
 
                 image_path = os.path.join(SAVE_DIR, file_name)
