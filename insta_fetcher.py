@@ -11,39 +11,36 @@ import schedule
 import time
 from datetime import datetime as dt
 import pytz
-import traceback
-
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-
 
 # ====== 設定項目 ======
 HASHTAG = '愛知サムライガーデン'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
-SAVE_DIR = 'images'  # ローカルの保存パス
+SAVE_DIR = 'images'
 CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLog'
-GOOGLE_CREDENTIALS_PATH = 'client_secret.json'  # 認証ファイルのパス
-SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')  # ← あなたのSlack Webhook URLにする
+GOOGLE_CREDENTIALS_PATH = 'client_secret.json'
+SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
 DRIVE_FOLDER_ID ='1YGx-G-5eMxrEinVBleYvMvYqsS5DIYaL'
 # =======================
 
-# ✅ ログ設定
 logging.basicConfig(
     filename='log.txt',
     filemode='a',
     level=logging.INFO,
     format='%(asctime)s - %(message)s',
 )
-
 def log(message):
     print(message)
     logging.info(message)
 
-# ✅ Slack通知
 def notify_slack(message):
+    if not SLACK_WEBHOOK_URL:
+        log("Slack URLが設定されていません")
+        return
     payload = {'text': message}
     try:
         response = requests.post(SLACK_WEBHOOK_URL, json=payload)
@@ -52,14 +49,11 @@ def notify_slack(message):
     except Exception as e:
         log(f"Slack通知例外: {e}")
 
-# （以降は同じ）
-# Google Sheets 認証
 def get_gspread_client():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDENTIALS_PATH, scope)
     return gspread.authorize(creds)
 
-# Instagram APIリクエスト
 def instagram_api(url):
     headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
     try:
@@ -73,7 +67,6 @@ def instagram_api(url):
         log(f"Unexpected error: {e}")
         raise
 
-# ハッシュタグIDを取得
 def get_hashtag_id():
     url = f"https://graph.facebook.com/v23.0/ig_hashtag_search?user_id={INSTAGRAM_BUSINESS_ID}&q={HASHTAG}&access_token={ACCESS_TOKEN}"
     data = instagram_api(url)
@@ -81,10 +74,19 @@ def get_hashtag_id():
     log(f"Hashtag ID for '{HASHTAG}' is {hashtag_id}")
     return hashtag_id
 
+# ✅ 安全版：投稿ゼロでも例外を握りつぶす
+def get_hashtag_id_safe():
+    try:
+        return get_hashtag_id()
+    except Exception as e:
+        log(f"ハッシュタグ取得失敗（投稿ゼロの可能性）: {e}")
+        return None
 
-# 投稿データを全件取得（ページネーション対応）
 def fetch_posts():
-    hashtag_id = get_hashtag_id()
+    hashtag_id = get_hashtag_id_safe()
+    if not hashtag_id:
+        return []  # 投稿がない場合は空リスト
+
     url = (
         f"https://graph.facebook.com/v23.0/{hashtag_id}/recent_media"
         f"?user_id={INSTAGRAM_BUSINESS_ID}&fields=id,timestamp,media_url,like_count,comments_count,permalink,caption"
@@ -93,49 +95,34 @@ def fetch_posts():
     posts = []
     while url:
         data = instagram_api(url)
-        posts.extend(data['data'])
+        posts.extend(data.get('data', []))
         url = data.get('paging', {}).get('next')
-        time.sleep(1)  # ← ここで1秒待つ（必要に応じて秒数調整）
+        time.sleep(1)
     return posts
 
-# 画像を保存
 def download_image(url, path):
     urllib.request.urlretrieve(url, path)
 
-# Google Drive に画像アップロード
-
-
 def upload_to_drive(file_path, file_name, drive_folder_id):
     try:
-        # Drive API 用の認証
         scopes = ['https://www.googleapis.com/auth/drive']
         creds = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=scopes)
         service = build('drive', 'v3', credentials=creds)
-
-        file_metadata = {
-            'name': file_name,
-            'parents': [drive_folder_id]  # アップロード先フォルダID
-        }
+        file_metadata = {'name': file_name, 'parents': [drive_folder_id]}
         media = MediaFileUpload(file_path, mimetype='image/jpeg')
         uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-
         log(f"→ Google Drive にアップロード成功: {file_name} (File ID: {uploaded_file.get('id')})")
-
     except Exception as e:
         log(f"Google Drive アップロードエラー: {e}")
-
 
 def load_existing_ids():
     if not os.path.exists(CSV_PATH):
         return set()
     with open(CSV_PATH, newline='', encoding='utf-8') as f:
         reader = csv.reader(f)
-        next(reader)  # ヘッダー読み飛ばし
+        next(reader)
         return set(row[1] for row in reader)
 
-
-
-# CSV に保存
 def save_to_csv(post, file_name, timestamp_str,fetch_time):
     is_new = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
@@ -154,12 +141,9 @@ def save_to_csv(post, file_name, timestamp_str,fetch_time):
             post['media_url'],
         ])
 
-# Google スプレッドシートに保存
 def save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time):
-    # ヘッダー行がなければ追加（fetch_timeを先頭に）
     if sheet.row_count == 0 or sheet.cell(1, 1).value is None:
         sheet.append_row(['fetch_time', 'timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
-
     sheet.append_row([
         fetch_time,
         timestamp_str,
@@ -173,11 +157,9 @@ def save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time):
     ])
     log(f"→ スプレッドシートに保存: {post['id']}")
 
-
-# スプレッドシートのファイル名列（4列目）から最大番号を取得
 def get_next_file_number(sheet):
     try:
-        filenames = sheet.col_values(4)[1:]  # 1行目はヘッダーなのでスキップ
+        filenames = sheet.col_values(4)[1:]
         numbers = []
         for name in filenames:
             match = re.match(r'garden_(\d+)\.jpeg', name)
@@ -188,70 +170,54 @@ def get_next_file_number(sheet):
         log(f"スプレッドシートからファイル名取得失敗: {e}")
         return 1
 
-
-# メイン処理
 def job():
     log("===== ジョブ開始 =====")
-    retries = 3
-    delay_sec = 10
-    for attempt in range(1, retries+1):
-        try:
-            os.makedirs(SAVE_DIR, exist_ok=True)
-            existing_ids = load_existing_ids()
-            posts = fetch_posts()
+    try:
+        os.makedirs(SAVE_DIR, exist_ok=True)
+        posts = fetch_posts()
+        if not posts:
+            log("投稿がまだありません。次回に期待！")
+            return
 
-            gc = get_gspread_client()
-            sheet = gc.open(SPREADSHEET_NAME).sheet1
-            existing_ids_gsheet = sheet.col_values(3)[1:]
+        existing_ids = load_existing_ids()
+        gc = get_gspread_client()
+        sheet = gc.open(SPREADSHEET_NAME).sheet1
+        existing_ids_gsheet = sheet.col_values(3)[1:]
+        file_counter = get_next_file_number(sheet)
+        jst = pytz.timezone('Asia/Tokyo')
+        fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
+        new_count = 0
 
-            file_counter = get_next_file_number(sheet)
-            jst = pytz.timezone('Asia/Tokyo')
-            fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
+        for post in posts:
+            if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
+                continue
 
-            new_count = 0
-            for post in posts:
-                if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
-                    continue
+            timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
+            timestamp_jst = timestamp_utc.astimezone(jst)
+            timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
+            file_name = f'garden_{file_counter}.jpeg'
+            file_counter += 1
+            image_path = os.path.join(SAVE_DIR, file_name)
+            download_image(post['media_url'], image_path)
+            save_to_csv(post, file_name, timestamp_str, fetch_time)
+            save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
+            upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
+            log(f"[NEW] {post['id']} → {file_name}")
+            new_count += 1
 
-                timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
-                timestamp_jst = timestamp_utc.astimezone(jst)
-                timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
+        log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
+        notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
 
-                file_name = f'garden_{file_counter}.jpeg'
-                file_counter += 1
+    except Exception as e:
+        log(f"ジョブ処理中のエラー: {e}")
+        notify_slack(f"❌ Instagram Fetcher エラー: {e}")
 
-                image_path = os.path.join(SAVE_DIR, file_name)
-                download_image(post['media_url'], image_path)
-
-                save_to_csv(post, file_name, timestamp_str, fetch_time)
-                save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
-                upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
-
-                log(f"[NEW] {post['id']} → {file_name}")
-                new_count += 1
-
-            log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
-            notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
-            break  # 成功したらループ抜ける
-
-        except Exception as e:
-            log(f"Attempt {attempt} failed: {e}")
-            if attempt == retries:
-                notify_slack(f"❌ Instagram Fetcher エラー発生（最終試行失敗）: {e}")
-                log("最大試行回数に達しました。処理を終了します。")
-                raise
-            else:
-                notify_slack(f"⚠️ Instagram Fetcher エラー発生（試行 {attempt}）: {e}。{delay_sec}秒後に再試行します。")
-                time.sleep(delay_sec)
-
-
-# スケジューラー実行
 schedule.every(6).hours.do(job)
 
 if __name__ == "__main__":
     log("Instagram Fetcher started. Press Ctrl+C to stop.")
     notify_slack("🚀 Instagram Fetcher 起動しました！")
-    job()  # 最初に一度実行
+    job()
     while True:
         schedule.run_pending()
         time.sleep(60)
