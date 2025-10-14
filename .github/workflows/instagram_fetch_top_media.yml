@@ -26,7 +26,7 @@ jobs:
         ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         INSTAGRAM_BUSINESS_ID: '17841413261363491'
         HASHTAG: '旧林氏庭園'
-        SPREADSHEET_NAME: 'InstaContestLog'
+        SPREADSHEET_NAME: 'InstaContestLogTopMedia'
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
