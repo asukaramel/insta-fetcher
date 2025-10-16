@@ -21,7 +21,7 @@ CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLogTopMedia'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
-DRIVE_FOLDER_ID ='19LuzYObiyPyB6e3WK_TP4zh-YiW_VoJ'
+DRIVE_FOLDER_ID ='19LuzYObiyPyB6e3WK_TP4zh-YiW_VoJ-'
 # =======================
 
 logging.basicConfig(
