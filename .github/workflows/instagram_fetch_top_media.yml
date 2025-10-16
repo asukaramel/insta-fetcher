@@ -27,7 +27,7 @@ jobs:
         INSTAGRAM_BUSINESS_ID: '17841413261363491'
         HASHTAG: '旧林氏庭園'
         SPREADSHEET_NAME: 'InstaContestLogTopMedia'
-        GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
         echo "$GOOGLE_CREDENTIALS_JSON" > client_secret.json
