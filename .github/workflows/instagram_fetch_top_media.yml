@@ -30,6 +30,5 @@ jobs:
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
       run: |
-        echo "$GOOGLE_CREDENTIALS_JSON" > client_secret.json
+        echo "$GOOGLE_CREDENTIALS" > client_secret.json
         python fetch_instagram_once.py
-
