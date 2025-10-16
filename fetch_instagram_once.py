@@ -1,27 +1,21 @@
 import requests
 import os
 import csv
-import urllib.request
 import gspread
-import re
 import logging
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime as dt
 import pytz
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+import time
 
 # ====== 設定項目 ======
 HASHTAG = '爲三郎記念館'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
-SAVE_DIR = 'images'
 CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLogTopMedia'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
-DRIVE_FOLDER_ID = '19LuzYObiyPyB6e3WK_TP4zh-YiW_VoJ-'  # フォルダIDをセット（空文字ならマイドライブ直下）
 # =======================
 
 logging.basicConfig(
@@ -81,7 +75,7 @@ def get_hashtag_id_safe():
 def fetch_posts():
     hashtag_id = get_hashtag_id_safe()
     if not hashtag_id:
-        return []  # 投稿がない場合は空リスト
+        return []
 
     url = (
         f"https://graph.facebook.com/v23.0/{hashtag_id}/top_media"
@@ -93,26 +87,9 @@ def fetch_posts():
         data = instagram_api(url)
         posts.extend(data.get('data', []))
         url = data.get('paging', {}).get('next')
+        if url:
+            time.sleep(1)  # API負荷軽減
     return posts
-
-def download_image(url, path):
-    urllib.request.urlretrieve(url, path)
-
-def upload_to_drive(file_path, file_name, drive_folder_id=None):
-    try:
-        scopes = ['https://www.googleapis.com/auth/drive']
-        creds = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=scopes)
-        service = build('drive', 'v3', credentials=creds)
-
-        file_metadata = {'name': file_name}
-        if drive_folder_id:
-            file_metadata['parents'] = [drive_folder_id]
-
-        media = MediaFileUpload(file_path, mimetype='image/jpeg')
-        uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
-        log(f"→ Google Drive にアップロード成功: {file_name} (File ID: {uploaded_file.get('id')})")
-    except Exception as e:
-        log(f"Google Drive アップロードエラー: {e}")
 
 def load_existing_ids():
     if not os.path.exists(CSV_PATH):
@@ -122,7 +99,7 @@ def load_existing_ids():
         next(reader)
         return set(row[1] for row in reader)
 
-def save_to_csv(post, file_name, timestamp_str,fetch_time):
+def save_to_csv(post, file_name, timestamp_str, fetch_time):
     is_new = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -172,7 +149,6 @@ def get_next_file_number(sheet):
 def job():
     log("===== ジョブ開始 =====")
     try:
-        os.makedirs(SAVE_DIR, exist_ok=True)
         posts = fetch_posts()
         if not posts:
             log("投稿がまだありません。")
@@ -196,11 +172,9 @@ def job():
             timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
             file_name = f'tamesaburo_{file_counter}.jpeg'
             file_counter += 1
-            image_path = os.path.join(SAVE_DIR, file_name)
-            download_image(post['media_url'], image_path)
+
             save_to_csv(post, file_name, timestamp_str, fetch_time)
             save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
-            upload_to_drive(image_path, file_name, DRIVE_FOLDER_ID)
             log(f"[NEW] {post['id']} → {file_name}")
             new_count += 1
 
