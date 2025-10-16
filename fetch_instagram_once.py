@@ -21,7 +21,7 @@ CSV_PATH = 'log.csv'
 SPREADSHEET_NAME = 'InstaContestLogTopMedia'
 GOOGLE_CREDENTIALS_PATH = 'client_secret.json'
 SLACK_WEBHOOK_URL = os.getenv('SLACK_WEBHOOK_URL')
-DRIVE_FOLDER_ID ='19LuzYObiyPyB6e3WK_TP4zh-YiW_VoJ-'
+DRIVE_FOLDER_ID = '19LuzYObiyPyB6e3WK_TP4zh-YiW_VoJ-'  # フォルダIDをセット（空文字ならマイドライブ直下）
 # =======================
 
 logging.basicConfig(
@@ -78,7 +78,6 @@ def get_hashtag_id_safe():
         log(f"ハッシュタグ取得失敗（投稿ゼロの可能性）: {e}")
         return None
 
-# ===== top media 取得 =====
 def fetch_posts():
     hashtag_id = get_hashtag_id_safe()
     if not hashtag_id:
@@ -99,12 +98,16 @@ def fetch_posts():
 def download_image(url, path):
     urllib.request.urlretrieve(url, path)
 
-def upload_to_drive(file_path, file_name, drive_folder_id):
+def upload_to_drive(file_path, file_name, drive_folder_id=None):
     try:
         scopes = ['https://www.googleapis.com/auth/drive']
         creds = service_account.Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=scopes)
         service = build('drive', 'v3', credentials=creds)
-        file_metadata = {'name': file_name, 'parents': [drive_folder_id]}
+
+        file_metadata = {'name': file_name}
+        if drive_folder_id:
+            file_metadata['parents'] = [drive_folder_id]
+
         media = MediaFileUpload(file_path, mimetype='image/jpeg')
         uploaded_file = service.files().create(body=file_metadata, media_body=media, fields='id').execute()
         log(f"→ Google Drive にアップロード成功: {file_name} (File ID: {uploaded_file.get('id')})")
@@ -208,7 +211,6 @@ def job():
         log(f"ジョブ処理中のエラー: {e}")
         notify_slack(f"❌ Instagram Fetcher エラー: {e}")
 
-# ===== 一回だけ実行 =====
 if __name__ == "__main__":
     log("Instagram Fetcher started.")
     notify_slack("🚀 Instagram Fetcher 起動しました！")
