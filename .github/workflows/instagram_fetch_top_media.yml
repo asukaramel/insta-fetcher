@@ -25,7 +25,7 @@ jobs:
       env:
         ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         INSTAGRAM_BUSINESS_ID: '17841413261363491'
-        HASHTAG: '華蔵寺'
+        HASHTAG: '華蔵寺庭園'
         SPREADSHEET_NAME: 'InstaContestLogTopMedia'
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
