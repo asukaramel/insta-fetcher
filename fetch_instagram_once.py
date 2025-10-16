@@ -11,6 +11,7 @@ import pytz
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import time
 
 # ====== 設定項目 ======
 HASHTAG = '華蔵寺'
@@ -51,18 +52,23 @@ def get_gspread_client():
     creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDENTIALS_PATH, scope)
     return gspread.authorize(creds)
 
-def instagram_api(url):
+def instagram_api(url, retries=3, delay=5):
     headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        log(f"HTTP Error {response.status_code} : {response.text}")
-        raise
-    except Exception as e:
-        log(f"Unexpected error: {e}")
-        raise
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            if response.status_code >= 500 and attempt < retries - 1:
+                log(f"サーバーエラー {response.status_code}、{delay}秒後に再試行します...")
+                time.sleep(delay)
+            else:
+                log(f"HTTP Error {response.status_code} : {response.text}")
+                raise
+        except Exception as e:
+            log(f"Unexpected error: {e}")
+            raise
 
 def get_hashtag_id():
     url = f"https://graph.facebook.com/v23.0/ig_hashtag_search?user_id={INSTAGRAM_BUSINESS_ID}&q={HASHTAG}&access_token={ACCESS_TOKEN}"
@@ -90,9 +96,14 @@ def fetch_posts():
     )
     posts = []
     while url:
-        data = instagram_api(url)
+        try:
+            data = instagram_api(url)
+        except Exception as e:
+            log(f"投稿取得中にエラー: {e}, 次のページに進めません")
+            break
         posts.extend(data.get('data', []))
         url = data.get('paging', {}).get('next')
+        time.sleep(1)
     return posts
 
 def download_image(url, path):
@@ -122,7 +133,7 @@ def load_existing_ids():
         next(reader)
         return set(row[1] for row in reader)
 
-def save_to_csv(post, file_name, timestamp_str,fetch_time):
+def save_to_csv(post, file_name, timestamp_str, fetch_time):
     is_new = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
@@ -189,6 +200,7 @@ def job():
 
         for post in posts:
             if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
+                log(f"既存投稿のためスキップ: {post['id']}")
                 continue
 
             timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
