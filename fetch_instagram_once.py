@@ -8,7 +8,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 import requests
 
 # ====== 設定 ======
-HASHTAG = '華蔵寺'
+HASHTAG = '華蔵寺庭園'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 CSV_PATH = 'log.csv'
