@@ -16,7 +16,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # ====== 設定項目 ======
-HASHTAG = '愛知サムライガーデン'
+HASHTAG = '愛知サムライガーデン2025'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 SAVE_DIR = 'images'
