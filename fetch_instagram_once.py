@@ -13,7 +13,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # ====== 設定項目 ======
-HASHTAG = '華蔵寺庭園'
+HASHTAG = '爲三郎記念館'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 SAVE_DIR = 'images'
@@ -161,7 +161,7 @@ def get_next_file_number(sheet):
         filenames = sheet.col_values(4)[1:]
         numbers = []
         for name in filenames:
-            match = re.match(r'kezoji_(\d+)\.jpeg', name)
+            match = re.match(r'tamesaburo_(\d+)\.jpeg', name)
             if match:
                 numbers.append(int(match.group(1)))
         return max(numbers) + 1 if numbers else 1
@@ -194,7 +194,7 @@ def job():
             timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
             timestamp_jst = timestamp_utc.astimezone(jst)
             timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
-            file_name = f'kezoji_{file_counter}.jpeg'
+            file_name = f'tamesaburo_{file_counter}.jpeg'
             file_counter += 1
             image_path = os.path.join(SAVE_DIR, file_name)
             download_image(post['media_url'], image_path)
