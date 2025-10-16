@@ -45,18 +45,27 @@ def get_gspread_client():
     creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDENTIALS_PATH, scope)
     return gspread.authorize(creds)
 
-def instagram_api(url):
+def instagram_api(url, retries=3):
     headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as e:
-        log(f"HTTP Error {response.status_code} : {response.text}")
-        raise
-    except Exception as e:
-        log(f"Unexpected error: {e}")
-        raise
+    for i in range(retries):
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.HTTPError as e:
+            log(f"HTTP Error {response.status_code} : {response.text}")
+            if 500 <= response.status_code < 600 and i < retries-1:
+                log(f"リトライ {i+1} 回目…")
+                time.sleep(2)
+                continue
+            raise
+        except Exception as e:
+            log(f"Unexpected error: {e}")
+            if i < retries-1:
+                log(f"リトライ {i+1} 回目…")
+                time.sleep(2)
+                continue
+            raise
 
 def get_hashtag_id():
     url = f"https://graph.facebook.com/v23.0/ig_hashtag_search?user_id={INSTAGRAM_BUSINESS_ID}&q={HASHTAG}&access_token={ACCESS_TOKEN}"
@@ -65,18 +74,8 @@ def get_hashtag_id():
     log(f"Hashtag ID for '{HASHTAG}' is {hashtag_id}")
     return hashtag_id
 
-def get_hashtag_id_safe():
-    try:
-        return get_hashtag_id()
-    except Exception as e:
-        log(f"ハッシュタグ取得失敗（投稿ゼロの可能性）: {e}")
-        return None
-
 def fetch_posts():
-    hashtag_id = get_hashtag_id_safe()
-    if not hashtag_id:
-        return []
-
+    hashtag_id = get_hashtag_id()
     url = (
         f"https://graph.facebook.com/v23.0/{hashtag_id}/top_media"
         f"?user_id={INSTAGRAM_BUSINESS_ID}&fields=id,timestamp,media_url,like_count,comments_count,permalink,caption"
@@ -99,51 +98,29 @@ def load_existing_ids():
         next(reader)
         return set(row[1] for row in reader)
 
-def save_to_csv(post, file_name, timestamp_str, fetch_time):
+def save_to_csv_batch(rows):
     is_new = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if is_new:
             writer.writerow(['fetch_time','timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
-        writer.writerow([
-            fetch_time,
-            timestamp_str,
-            post['id'],
-            file_name,
-            post.get('like_count', 0),
-            post.get('comments_count', 0),
-            post.get('caption', ''),
-            post['permalink'],
-            post['media_url'],
-        ])
+        writer.writerows(rows)
 
-def save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time):
+def save_to_gsheet_batch(rows, sheet):
     if sheet.row_count == 0 or sheet.cell(1, 1).value is None:
-        sheet.append_row(['fetch_time', 'timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
-    sheet.append_row([
-        fetch_time,
-        timestamp_str,
-        post['id'],
-        file_name,
-        post.get('like_count', 0),
-        post.get('comments_count', 0),
-        post.get('caption', ''),
-        post['permalink'],
-        post['media_url'],
-    ])
-    log(f"→ スプレッドシートに保存: {post['id']}")
+        sheet.append_row(['fetch_time','timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
+    sheet.append_rows(rows)
+    log(f"→ スプレッドシートに {len(rows)} 件追加")
 
 def get_next_file_number(sheet):
     try:
         filenames = sheet.col_values(4)[1:]
         numbers = []
         for name in filenames:
-            match = re.match(r'tamesaburo_(\d+)\.jpeg', name)
-            if match:
-                numbers.append(int(match.group(1)))
+            if '_' in name and '.jpeg' in name:
+                numbers.append(int(name.split('_')[1].replace('.jpeg','')))
         return max(numbers) + 1 if numbers else 1
-    except Exception as e:
-        log(f"スプレッドシートからファイル名取得失敗: {e}")
+    except:
         return 1
 
 def job():
@@ -157,10 +134,12 @@ def job():
         existing_ids = load_existing_ids()
         gc = get_gspread_client()
         sheet = gc.open(SPREADSHEET_NAME).sheet1
-        existing_ids_gsheet = sheet.col_values(3)[1:]
+        existing_ids_gsheet = set(sheet.col_values(3)[1:])
         file_counter = get_next_file_number(sheet)
         jst = pytz.timezone('Asia/Tokyo')
         fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
+
+        rows_to_save = []
         new_count = 0
 
         for post in posts:
@@ -173,13 +152,33 @@ def job():
             file_name = f'tamesaburo_{file_counter}.jpeg'
             file_counter += 1
 
-            save_to_csv(post, file_name, timestamp_str, fetch_time)
-            save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
-            log(f"[NEW] {post['id']} → {file_name}")
+            row = [
+                fetch_time,
+                timestamp_str,
+                post['id'],
+                file_name,
+                post.get('like_count', 0),
+                post.get('comments_count', 0),
+                post.get('caption', ''),
+                post['permalink'],
+                post['media_url'],
+            ]
+            rows_to_save.append(row)
             new_count += 1
 
+            # 50件ごとに保存
+            if len(rows_to_save) >= 50:
+                save_to_csv_batch(rows_to_save)
+                save_to_gsheet_batch(rows_to_save, sheet)
+                rows_to_save = []
+
+        # 残りを保存
+        if rows_to_save:
+            save_to_csv_batch(rows_to_save)
+            save_to_gsheet_batch(rows_to_save, sheet)
+
         log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
-        notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
+        notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件")
 
     except Exception as e:
         log(f"ジョブ処理中のエラー: {e}")
