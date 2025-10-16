@@ -7,7 +7,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime as dt
 import pytz
 import time
-import re
 
 # ====== 設定項目 ======
 HASHTAG = '爲三郎記念館'
@@ -25,6 +24,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(message)s',
 )
+
 def log(message):
     print(message)
     logging.info(message)
@@ -46,24 +46,18 @@ def get_gspread_client():
     creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_CREDENTIALS_PATH, scope)
     return gspread.authorize(creds)
 
-def instagram_api(url, retries=5):
-    for i in range(retries):
-        try:
-            headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            if 500 <= response.status_code < 600:
-                wait = 2 * (i + 1)
-                log(f"500エラー発生、リトライ {i+1}/{retries} … {wait}s 待機")
-                time.sleep(wait)
-                continue
-            raise
-        except Exception as e:
-            log(f"API例外: {e}")
-            time.sleep(2)
-    raise Exception("Instagram API リトライ失敗")
+def instagram_api(url):
+    headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        log(f"HTTP Error {response.status_code} : {response.text}")
+        raise
+    except Exception as e:
+        log(f"Unexpected error: {e}")
+        raise
 
 def get_hashtag_id():
     url = f"https://graph.facebook.com/v23.0/ig_hashtag_search?user_id={INSTAGRAM_BUSINESS_ID}&q={HASHTAG}&access_token={ACCESS_TOKEN}"
@@ -72,19 +66,21 @@ def get_hashtag_id():
     log(f"Hashtag ID for '{HASHTAG}' is {hashtag_id}")
     return hashtag_id
 
-def fetch_posts(after=None):
+def fetch_posts():
     hashtag_id = get_hashtag_id()
     url = (
         f"https://graph.facebook.com/v23.0/{hashtag_id}/top_media"
-        f"?user_id={INSTAGRAM_BUSINESS_ID}"
-        f"&fields=id,timestamp,media_url,like_count,comments_count,permalink,caption"
+        f"?user_id={INSTAGRAM_BUSINESS_ID}&fields=id,timestamp,media_url,like_count,comments_count,permalink,caption"
         f"&limit=50&access_token={ACCESS_TOKEN}"
     )
-    if after:
-        url += f"&after={after}"
-
-    data = instagram_api(url)
-    return data.get('data', []), data.get('paging', {}).get('cursors', {}).get('after')
+    posts = []
+    while url:
+        data = instagram_api(url)
+        posts.extend(data.get('data', []))
+        url = data.get('paging', {}).get('next')
+        if url:
+            time.sleep(1)  # API負荷軽減
+    return posts
 
 def load_existing_ids():
     if not os.path.exists(CSV_PATH):
@@ -94,44 +90,52 @@ def load_existing_ids():
         next(reader)
         return set(row[1] for row in reader)
 
-def save_to_csv(post, file_name, timestamp_str, fetch_time):
+def save_to_csv_batch(new_posts):
     is_new = not os.path.exists(CSV_PATH)
     with open(CSV_PATH, 'a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if is_new:
             writer.writerow(['fetch_time','timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
-        writer.writerow([
-            fetch_time,
-            timestamp_str,
-            post['id'],
-            file_name,
-            post.get('like_count', 0),
-            post.get('comments_count', 0),
-            post.get('caption', ''),
-            post['permalink'],
-            post['media_url'],
-        ])
+        for post in new_posts:
+            writer.writerow([
+                post['fetch_time'],
+                post['timestamp'],
+                post['id'],
+                post['filename'],
+                post.get('like_count', 0),
+                post.get('comments_count', 0),
+                post.get('caption', ''),
+                post['permalink'],
+                post['media_url'],
+            ])
 
-def save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time):
+def save_to_gsheet_batch(new_posts, sheet):
+    if not new_posts:
+        return
     if sheet.row_count == 0 or sheet.cell(1, 1).value is None:
-        sheet.append_row(['fetch_time','timestamp','id','filename','like_count','comment_count','caption','permalink','media_url'])
-    sheet.append_row([
-        fetch_time,
-        timestamp_str,
+        sheet.append_row(['fetch_time','timestamp', 'id', 'filename', 'like_count', 'comment_count', 'caption', 'permalink', 'media_url'])
+    rows = [[
+        post['fetch_time'],
+        post['timestamp'],
         post['id'],
-        file_name,
+        post['filename'],
         post.get('like_count', 0),
         post.get('comments_count', 0),
         post.get('caption', ''),
         post['permalink'],
         post['media_url'],
-    ])
-    log(f"→ スプレッドシートに保存: {post['id']}")
+    ] for post in new_posts]
+    sheet.append_rows(rows)
+    log(f"→ スプレッドシートに {len(rows)} 件を一括保存")
 
 def get_next_file_number(sheet):
     try:
         filenames = sheet.col_values(4)[1:]
-        numbers = [int(re.search(r'tamesaburo_(\d+)\.jpeg', f).group(1)) for f in filenames if re.search(r'tamesaburo_(\d+)\.jpeg', f)]
+        numbers = []
+        for name in filenames:
+            if name.startswith('tamesaburo_'):
+                num = int(name.split('_')[1].replace('.jpeg',''))
+                numbers.append(num)
         return max(numbers)+1 if numbers else 1
     except:
         return 1
@@ -139,6 +143,11 @@ def get_next_file_number(sheet):
 def job():
     log("===== ジョブ開始 =====")
     try:
+        posts = fetch_posts()
+        if not posts:
+            log("投稿がまだありません。")
+            return
+
         existing_ids = load_existing_ids()
         gc = get_gspread_client()
         sheet = gc.open(SPREADSHEET_NAME).sheet1
@@ -146,36 +155,34 @@ def job():
         file_counter = get_next_file_number(sheet)
         jst = pytz.timezone('Asia/Tokyo')
         fetch_time = dt.now(tz=jst).strftime('%Y-%m-%d %H:%M:%S')
-        new_count = 0
-        after_cursor = None
 
-        while True:
-            posts, after_cursor = fetch_posts(after_cursor)
-            if not posts:
-                break
+        new_posts = []
+        for post in posts:
+            if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
+                continue
 
-            for post in posts:
-                if post['id'] in existing_ids or post['id'] in existing_ids_gsheet:
-                    continue
+            timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
+            timestamp_jst = timestamp_utc.astimezone(jst)
+            timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
+            file_name = f'tamesaburo_{file_counter}.jpeg'
+            file_counter += 1
 
-                timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
-                timestamp_jst = timestamp_utc.astimezone(jst)
-                timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
-                file_name = f'tamesaburo_{file_counter}.jpeg'
-                file_counter += 1
+            new_posts.append({
+                'fetch_time': fetch_time,
+                'timestamp': timestamp_str,
+                'id': post['id'],
+                'filename': file_name,
+                'like_count': post.get('like_count',0),
+                'comments_count': post.get('comments_count',0),
+                'caption': post.get('caption',''),
+                'permalink': post['permalink'],
+                'media_url': post['media_url']
+            })
 
-                save_to_csv(post, file_name, timestamp_str, fetch_time)
-                save_to_gsheet(post, file_name, timestamp_str, sheet, fetch_time)
-                log(f"[NEW] {post['id']} → {file_name}")
-                new_count += 1
-
-            log("次ページ取得まで1秒待機…")
-            time.sleep(1)
-            if not after_cursor:
-                break
-
-        log(f"===== ジョブ終了: 新規取得 {new_count} 件 =====")
-        notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {new_count} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
+        save_to_csv_batch(new_posts)
+        save_to_gsheet_batch(new_posts, sheet)
+        log(f"===== ジョブ終了: 新規取得 {len(new_posts)} 件 =====")
+        notify_slack(f"✅ Instagram Fetcher 完了！ 新規取得 {len(new_posts)} 件 ( {dt.now().strftime('%Y-%m-%d %H:%M:%S')} )")
 
     except Exception as e:
         log(f"ジョブ処理中のエラー: {e}")
