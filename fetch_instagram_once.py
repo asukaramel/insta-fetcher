@@ -10,7 +10,7 @@ import time
 import re
 
 # ====== 設定項目 ======
-HASHTAG = '爲三郎記念館'
+HASHTAG = '内々神社'
 INSTAGRAM_BUSINESS_ID = '17841413261363491'
 ACCESS_TOKEN = os.getenv('ACCESS_TOKEN')
 CSV_PATH = 'log.csv'
@@ -123,7 +123,7 @@ def get_next_file_number(sheet):
         filenames = sheet.col_values(4)[1:]
         numbers = []
         for name in filenames:
-            match = re.match(r'tamesaburo_(\d+)\.jpeg', name)
+            match = re.match(r'utsutsu_(\d+)\.jpeg', name)
             if match:
                 numbers.append(int(match.group(1)))
         return max(numbers) + 1 if numbers else 1
@@ -157,7 +157,7 @@ def job():
             timestamp_utc = dt.strptime(post['timestamp'], '%Y-%m-%dT%H:%M:%S%z')
             timestamp_jst = timestamp_utc.astimezone(jst)
             timestamp_str = timestamp_jst.strftime('%Y-%m-%d %H:%M:%S')
-            file_name = f'tamesaburo_{file_counter}.jpeg'
+            file_name = f'utsutsu_{file_counter}.jpeg'
             file_counter += 1
 
             # CSVは従来通り
